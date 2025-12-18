@@ -14,6 +14,53 @@ __global__ void sgemm_kernel_2(const float* A, const float* B, float* C, int m, 
 __global__ void sgemm_kernel_3(const float* A, const float* B, float* C, int m, int n, int k);
 __global__ void sgemm_kernel_4(const float* A, const float* B, float* C, int m, int n, int k);
 __global__ void sgemm_kernel_5(const float* A, const float* B, float* C, int m, int n, int k);
+__global__ void sgemm_kernel_6(const float* A, const float* B, float* C, int m, int n, int k);
+
+typedef void (*sgemm_kernel_launcher)(
+    dim3 grid, dim3 block,
+    const float*, const float*, float*,
+    int m, int n, int k);
+
+void launch_sgemm_1(dim3 grid, dim3 block,
+                    const float* A, const float* B, float* C,
+                    int m, int n, int k)
+{
+    sgemm_kernel_1<<<grid, block>>>(A, B, C, m, n, k);
+}
+
+void launch_sgemm_2(dim3 grid, dim3 block,
+                    const float* A, const float* B, float* C,
+                    int m, int n, int k)
+{
+    sgemm_kernel_2<<<grid, block>>>(A, B, C, m, n, k);
+}
+
+void launch_sgemm_3(dim3 grid, dim3 block,
+                    const float* A, const float* B, float* C,
+                    int m, int n, int k)
+{
+    sgemm_kernel_3<<<grid, block>>>(A, B, C, m, n, k);
+}
+
+void launch_sgemm_4(dim3 grid, dim3 block,
+                    const float* A, const float* B, float* C,
+                    int m, int n, int k)
+{
+    sgemm_kernel_4<<<grid, block>>>(A, B, C, m, n, k);
+}
+void launch_sgemm_5(dim3 grid, dim3 block,
+                    const float* A, const float* B, float* C,
+                    int m, int n, int k)
+{
+    sgemm_kernel_5<<<grid, block>>>(A, B, C, m, n, k);
+}
+
+void launch_sgemm_6(dim3 grid, dim3 block,
+                    const float* A, const float* B, float* C,
+                    int m, int n, int k)
+{
+    sgemm_kernel_6<<<grid, block>>>(A, B, C, m, n, k);
+}
 
 // Utility function to initialize a matrix with random values
 void initialize_matrix(float* matrix, int m, int n) 
@@ -38,21 +85,46 @@ bool compare_matrices(const vector<float>& A, const vector<float>& B, float eps 
     return true;
 }
 
-float bench_kernel(const float *d_A, const float *d_B, float *d_C, int m, int n, int k)
+float bench_kernel(int kernelID, const float *d_A, const float *d_B, float *d_C, int m, int n, int k)
 {
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
-    dim3 thread(16, 16);
-    dim3 grid(
-        (m + 8*thread.x - 1) / (8*thread.x),  // Ceiling division for grid.x
-        (n + 8*thread.y - 1) / (8*thread.y)   // Ceiling division for grid.y
-    );
+    sgemm_kernel_launcher kernel_table[6] = {
+        launch_sgemm_1,
+        launch_sgemm_2,
+        launch_sgemm_3,
+        launch_sgemm_4,
+        launch_sgemm_5,
+        launch_sgemm_6
+    };
+
+    dim3 thread, grid;
+
+    if (kernelID == 1) {
+        thread = dim3(32, 32);
+        grid = dim3((n + 31) / 32, (m + 31) / 32);
+    } else if (kernelID == 2) {
+        thread = dim3(32, 32);
+        grid = dim3((m + 31) / 32, (n + 31) / 32);
+    } else if (kernelID == 3) {
+        thread = dim3(32, 32);
+        grid = dim3((m + 31) / 32, (n + 31) / 32);
+    } else if (kernelID == 4) {
+        thread = dim3(16, 16);
+        grid = dim3((m + 127) / 128, (n + 127) / 128);
+    } else if (kernelID == 5) {
+        thread = dim3(16, 16);
+        grid = dim3((m + 127) / 128, (n + 127) / 128);
+    } else if (kernelID == 6) {
+        thread = dim3(16, 16);
+        grid = dim3((m + 127) / 128, (n + 127) / 128);
+    }
 
     // warm-up (push clock to the maximum)
     for (int i = 0; i < 5; ++i)
-        sgemm_kernel_5<<<grid, thread>>>(d_A, d_B, d_C, m, n, k);
+        kernel_table[kernelID-1](grid, thread, d_A, d_B, d_C, m, n, k);
     cudaDeviceSynchronize();  // Ensure warm-up completes
 
     // actual measurements
@@ -61,7 +133,7 @@ float bench_kernel(const float *d_A, const float *d_B, float *d_C, int m, int n,
 
     for (int i = 0; i < nIters; ++i) {
         cudaEventRecord(start);
-        sgemm_kernel_5<<<grid, thread>>>(d_A, d_B, d_C, m, n, k);
+        kernel_table[kernelID-1](grid, thread, d_A, d_B, d_C, m, n, k);
         cudaEventRecord(stop);
         cudaEventSynchronize(stop); // Ensure the kernel completes
 
@@ -162,17 +234,19 @@ int main()
         // store of copy of the cuBLAS result in C_ref to validate correctness
         cudaMemcpy(C_ref.data(), d_C, m * n * sizeof(float), cudaMemcpyDeviceToHost);
 
-        // B) === kernel 1 ===
-        // fill d_C with zeros
-        fill(C.begin(), C.end(), 0.0f);
-        cudaMemcpy(d_C, C.data(), m * n * sizeof(float), cudaMemcpyHostToDevice);
+        // B) === kernels  ===
+        for (int kernelID = 1; kernelID <= 6; ++kernelID) {
+            // fill d_C with zeros
+            fill(C.begin(), C.end(), 0.0f);
+            cudaMemcpy(d_C, C.data(), m * n * sizeof(float), cudaMemcpyHostToDevice);
 
-        GFLOPSs = bench_kernel(d_A, d_B, d_C, m, n, k);
-        cout << "kernel1\t" << m << "\t" << n << "\t" << k << "\t" << GFLOPSs << endl; 
+            GFLOPSs = bench_kernel(kernelID, d_A, d_B, d_C, m, n, k);
+            cout << "kernel" << kernelID << "\t" << m << "\t" << n << "\t" << k << "\t" << GFLOPSs << endl;
 
-        // validate correctness
-        cudaMemcpy(C.data(), d_C, m * n * sizeof(float), cudaMemcpyDeviceToHost);
-        compare_matrices(C, C_ref);
+            // validate correctness
+            cudaMemcpy(C.data(), d_C, m * n * sizeof(float), cudaMemcpyDeviceToHost);
+            compare_matrices(C, C_ref);
+        }
        
         cudaFree(d_A);
         cudaFree(d_B);
