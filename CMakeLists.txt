@@ -20,9 +20,10 @@ include_directories(${CUDAToolkit_INCLUDE_DIRS})
 # Add executable
 add_executable(sgemm src/main.cu src/kernel_1.cu src/kernel_2.cu
                                  src/kernel_3.cu src/kernel_4.cu
-                                 src/kernel_5.cu src/kernel_6.cu)
+                                 src/kernel_5.cu src/kernel_6.cu
+                                 src/kernel_7.cu)
 
-set_target_properties(sgemm PROPERTIES CUDA_ARCHITECTURES "80;86;89")
+set_target_properties(sgemm PROPERTIES CUDA_ARCHITECTURES "80;86;89;120")
 
 # Link against cuBLAS
 target_link_libraries(sgemm PRIVATE CUDA::cudart CUDA::cublas)
