@@ -15,6 +15,7 @@ __global__ void sgemm_kernel_3(const float* A, const float* B, float* C, int m, 
 __global__ void sgemm_kernel_4(const float* A, const float* B, float* C, int m, int n, int k);
 __global__ void sgemm_kernel_5(const float* A, const float* B, float* C, int m, int n, int k);
 __global__ void sgemm_kernel_6(const float* A, const float* B, float* C, int m, int n, int k);
+__global__ void sgemm_kernel_7(const float* A, const float* B, float* C, int m, int n, int k);
 
 typedef void (*sgemm_kernel_launcher)(
     dim3 grid, dim3 block,
@@ -62,6 +63,13 @@ void launch_sgemm_6(dim3 grid, dim3 block,
     sgemm_kernel_6<<<grid, block>>>(A, B, C, m, n, k);
 }
 
+void launch_sgemm_7(dim3 grid, dim3 block,
+                    const float* A, const float* B, float* C,
+                    int m, int n, int k)
+{
+    sgemm_kernel_7<<<grid, block>>>(A, B, C, m, n, k);
+}
+
 // Utility function to initialize a matrix with random values
 void initialize_matrix(float* matrix, int m, int n) 
 {
@@ -91,13 +99,14 @@ float bench_kernel(int kernelID, const float *d_A, const float *d_B, float *d_C,
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
-    sgemm_kernel_launcher kernel_table[6] = {
+    sgemm_kernel_launcher kernel_table[7] = {
         launch_sgemm_1,
         launch_sgemm_2,
         launch_sgemm_3,
         launch_sgemm_4,
         launch_sgemm_5,
-        launch_sgemm_6
+        launch_sgemm_6,
+        launch_sgemm_7
     };
 
     dim3 thread, grid;
@@ -120,6 +129,9 @@ float bench_kernel(int kernelID, const float *d_A, const float *d_B, float *d_C,
     } else if (kernelID == 6) {
         thread = dim3(16, 16);
         grid = dim3((m + 127) / 128, (n + 127) / 128);
+    } else if (kernelID == 7) {
+        thread = dim3(32);
+        grid = dim3((n + 7) / 8, (m + 15) / 16);
     }
 
     // warm-up (push clock to the maximum)
@@ -206,7 +218,7 @@ int main()
 {
     cout << "Welcome to kernelBench" << endl;
 
-    for (int i = 1; i < 24; ++i) {
+    for (int i = 1; i < 9; ++i) {
         // Matrix dimensions
         int m = i * 256, n = i * 256, k = i * 256;
 
@@ -235,7 +247,7 @@ int main()
         cudaMemcpy(C_ref.data(), d_C, m * n * sizeof(float), cudaMemcpyDeviceToHost);
 
         // B) === kernels  ===
-        for (int kernelID = 1; kernelID <= 6; ++kernelID) {
+        for (int kernelID = 1; kernelID <= 7; ++kernelID) {
             // fill d_C with zeros
             fill(C.begin(), C.end(), 0.0f);
             cudaMemcpy(d_C, C.data(), m * n * sizeof(float), cudaMemcpyHostToDevice);
